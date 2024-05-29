@@ -1,0 +1,4 @@
+docker build -t keymastro-builder .
+docker create --name keymastro-container keymastro-builder
+docker cp keymastro-container:/usr/local/bin/keymastro .
+docker rm keymastro-container
