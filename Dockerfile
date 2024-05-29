@@ -11,7 +11,9 @@ COPY . .
 RUN cargo build --release
 
 # Stage 2: Create a minimal image with the compiled binary
-FROM debian:buster-slim
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y libpq5 libssl1.1 && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
 WORKDIR /usr/local/bin
