@@ -3,90 +3,10 @@ use device_query::{DeviceQuery, DeviceState, Keycode};
 use enigo::*;
 use log::info;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, str::FromStr, thread, time::Duration};
+use std::{collections::HashMap, fs, thread, time::Duration};
+use utils::{string_to_key, string_to_keycode};
 
-fn string_to_char(s: &str) -> char {
-    s.chars().next().expect("String is empty")
-}
-
-fn string_to_keycode(s: &str) -> Keycode {
-    match s {
-        "0" => Keycode::Key0,
-        "1" => Keycode::Key1,
-        "2" => Keycode::Key2,
-        "3" => Keycode::Key3,
-        "4" => Keycode::Key4,
-        "5" => Keycode::Key5,
-        "6" => Keycode::Key6,
-        "7" => Keycode::Key7,
-        "8" => Keycode::Key8,
-        "9" => Keycode::Key9,
-        "UpArrow" => Keycode::Up,
-        "DownArrow" => Keycode::Down,
-        "LeftArrow" => Keycode::Left,
-        "RightArrow" => Keycode::Right,
-        _ => match Keycode::from_str(s) {
-            Ok(kc) => kc,
-            Err(_) => panic!("Unsupported key: {}", s),
-        },
-    }
-}
-
-fn string_to_key(s: &str) -> Key {
-    match s {
-        "Alt" => Key::Alt,
-        "Backspace" => Key::Backspace,
-        "CapsLock" => Key::CapsLock,
-        "Control" => Key::Control,
-        "LControl" => Key::LControl,
-        "Delete" => Key::Delete,
-        "DownArrow" => Key::DownArrow,
-        "End" => Key::End,
-        "Escape" => Key::Escape,
-        "F1" => Key::F1,
-        "F2" => Key::F2,
-        "F3" => Key::F3,
-        "F4" => Key::F4,
-        "F5" => Key::F5,
-        "F6" => Key::F6,
-        "F7" => Key::F7,
-        "F8" => Key::F8,
-        "F9" => Key::F9,
-        "F10" => Key::F10,
-        "F11" => Key::F11,
-        "F12" => Key::F12,
-        "F13" => Key::F13,
-        "F14" => Key::F14,
-        "F15" => Key::F15,
-        "F16" => Key::F16,
-        "F17" => Key::F17,
-        "F18" => Key::F18,
-        "F19" => Key::F19,
-        "F20" => Key::F20,
-        "Help" => Key::Help,
-        "Home" => Key::Home,
-        "LeftArrow" => Key::LeftArrow,
-        "MediaNextTrack" => Key::MediaNextTrack,
-        "MediaPlayPause" => Key::MediaPlayPause,
-        "MediaPrevTrack" => Key::MediaPrevTrack,
-        "PageDown" => Key::PageDown,
-        "PageUp" => Key::PageUp,
-        "RControl" => Key::RControl,
-        "Return" | "Enter" => Key::Return,
-        "RightArrow" => Key::RightArrow,
-        "RShift" => Key::RShift,
-        "Shift" => Key::Shift,
-        "LShift" => Key::LShift,
-        "Space" => Key::Space,
-        "Tab" => Key::Tab,
-        "UpArrow" | "Up" => Key::UpArrow,
-        "VolumeDown" => Key::VolumeDown,
-        "VolumeUp" => Key::VolumeUp,
-        "VolumeMute" => Key::VolumeMute,
-        "Command" | "Super" | "Windows" => Key::Meta,
-        _ => Key::Unicode(string_to_char(s)),
-    }
-}
+mod utils;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct KeyPress {
@@ -135,20 +55,20 @@ fn main() {
     // Convert string keys to Keycode and store mappings
     let mut key_mappings = HashMap::new();
     for (from_key, to_keys) in config.mappings {
-        let from_keycode = string_to_keycode(&from_key);
+        // let from_keycode = string_to_keycode(&from_key);
 
-        let enigo_keys: Vec<(Key, u64, String)> = to_keys
+        let enigo_keys: Vec<(String, u64, String)> = to_keys
             .into_iter()
             .map(|kp| {
                 (
-                    string_to_key(&kp.key),
+                    kp.key,
                     kp.delay.unwrap_or(0),
                     kp.direction.unwrap_or("Click".to_string()),
                 )
             })
             .collect();
 
-        key_mappings.insert(from_keycode, enigo_keys);
+        key_mappings.insert(from_key, enigo_keys);
     }
     info!("Key mappings loaded successfully");
 
@@ -167,8 +87,21 @@ fn main() {
         //     println!("{:?}", keys);
         // }
 
+        let mouse = device_state.get_mouse();
+        // println!("{:?}", mouse.button_pressed);
+        let mouse_key = if mouse.button_pressed[1] {
+            "LeftMouse"
+        } else if mouse.button_pressed[2] {
+            "RightMouse"
+        } else {
+            ""
+        };
+
         for (from_key, to_keys) in &key_mappings {
-            if keys.contains(from_key) {
+            if (from_key.contains("Mouse") && from_key == mouse_key)
+                || (!from_key.contains("Mouse")
+                    && keys.contains(&string_to_keycode(from_key.as_str())))
+            {
                 for (key, delay, direction) in to_keys {
                     if *delay > 0 || global_delay > 0 {
                         thread::sleep(Duration::from_millis(delay + global_delay));
@@ -182,9 +115,26 @@ fn main() {
                     } else {
                         Direction::Click
                     };
-                    enigo
-                        .key(*key, key_direction)
-                        .expect("Something went wrong with key press");
+
+                    if key.contains("Mouse") {
+                        let button = if *key == "LeftMouse" {
+                            Some(Button::Left)
+                        } else if *key == "RightMouse" {
+                            Some(Button::Right)
+                        } else {
+                            None
+                        };
+                        if let Some(b) = button {
+                            enigo
+                                .button(b, key_direction)
+                                .expect("Something wrong with clicking mouse!");
+                        }
+                    } else {
+                        enigo
+                            .key(string_to_key(&key), key_direction)
+                            .expect("Something went wrong with key press");
+                    }
+
                     // thread::sleep(Duration::from_millis(50)); // Small delay between key down and key up
                     // enigo.key_up(key);
                 }
@@ -195,6 +145,6 @@ fn main() {
         }
 
         // Add a small sleep to avoid high CPU usage
-        thread::sleep(Duration::from_millis(50));
+        // thread::sleep(Duration::from_millis(50));
     }
 }
